@@ -1,0 +1,45 @@
+actions:
+- deploy:
+    namespace: tlxc
+    os: debian
+    packages:
+    - android-tools-adb
+    - android-tools-fastboot
+    - systemd
+    - systemd-sysv
+    timeout:
+      minutes: 30
+    to: lxc
+- boot:
+    method: lxc
+    namespace: tlxc
+    prompts:
+    - root@(.*):/#
+    timeout:
+      minutes: 5
+- deploy:
+    images:
+      pac:
+        url: file:///home/apuser/pacs/sp7731e_1h10_native-userdebug-native_PIKE2_Uncache.pac
+    namespace: droid
+    os: debian
+    timeout:
+      minutes: 30
+    to: dloader
+device_type: debug_multi_dloader
+job_name: debug dloader
+priority: medium
+protocols:
+  lava-lxc:
+    mirror: http://mirrors.ustc.edu.cn/debian/
+    distribution: debian
+    name: lxc-sp9850ka-native-test
+    release: sid
+    template: debian
+    persist: true
+timeouts:
+  action:
+    minutes: 15
+  job:
+    minutes: 60
+visibility: public 

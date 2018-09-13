@@ -1,0 +1,92 @@
+device_type: sharkl3_debug
+job_name: vts-ltp-kernel
+timeouts:
+  job:
+    minutes: 1500
+  action:
+    minutes: 15
+  connection:
+    minutes: 2
+priority: high
+visibility: personal
+metadata:
+  android.name: android-spreadtrum
+  git changeid: 123456
+  series: lkft
+protocols:
+  lava-lxc:
+    name: lxc-sharkl2-test
+    template: ubuntu
+    distribution: ubuntu
+    release: xenial
+    arch: amd64
+actions:
+- deploy:
+    namespace: tlxc
+    timeout:
+      minutes: 5
+    to: lxc
+    packages:
+    - wget
+    - zip
+    - unzip
+    - usbutils
+    os: ubuntu
+- boot:
+    namespace: tlxc
+    prompts:
+    - root@(.*):/#
+    timeout:
+      minutes: 30
+    method: lxc
+- test:
+    namespace: tlxc
+    timeout:
+      minutes: 10
+    definitions:
+    - from: inline
+      name: install-google-fastboot
+      path: inline/install-google-fastboot.yaml
+      repository:
+        metadata:
+          format: Lava-Test Test Definition 1.0
+          name: install-fastboot
+          description: Install fastboot provided by google
+        run:
+          steps:
+          - wget http://10.0.70.103:8080/download-lava/platform-tools/platform-tools_r26.0.0-linux.zip
+          - unzip -q platform-tools_r26.0.0-linux.zip
+          - ln -s `pwd`/platform-tools/fastboot /usr/bin/fastboot
+          - ln -s `pwd`/platform-tools/adb /usr/bin/adb
+          - fastboot --version
+- deploy:
+    timeout:
+      minutes: 30
+    to: fastboot
+    namespace: droid
+    images:
+      boot:
+        url: "file:///home/apuser/lavatest/sharkl3_k44/boot.img"
+      userdata:
+        url: "file:///home/apuser/lavatest/sharkl3_k44/userdata.img"
+- boot:
+    namespace: droid
+    timeout:
+      minutes: 15
+    method: fastboot
+- test:
+    namespace: tlxc
+    connection: lxc
+    timeout:
+      minutes: 1500
+    definitions:
+    - repository: ssh://erin.liu@review.source.spreadtrum.com:29418/lava_apr/lava_test_case
+      branch: sprd_dev2
+      from: git
+      path: automated/android/tradefed/tradefed.yaml
+      params:
+        TEST_URL: http://10.0.70.103:8080/download-lava/cts-vts/android-vts-4766758-arm_64_revision1.zip
+        TEST_PARAMS: run vts-kernel --module VtsKernelLtp -a arm64-v8a --skip-device-info
+        TEST_PATH: android-vts
+        RESULTS_FORMAT: atomic
+      name: vts-test 
