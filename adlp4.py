@@ -11,71 +11,72 @@ import json
 from requests.exceptions import ConnectionError
 import traceback
 import multiprocessing
-import subprocess
+# import subprocess
 
 COUNT_EX = 0
 WHITE_URL = 'http://10.0.70.54:8080/tjxt/index/get_white_list_pac_info'
 STORAGE_FILE = 'urls_infos.json'
 DOWLOAD_LAVA = ''
 
-def get_urls():
+def init():
     r = requests.get(WHITE_URL)
-    sorc_urls = r.json()['data']
-    def md_urls(url):
-        if 'view' in url:
-            return {'/'.join(url.split('/')[:8])+'/lastSuccessfulBuild/artifact/': {'url': url}}
-        return {'/'.join(url.split('/')[:6])+'/lastSuccessfulBuild/artifact/': {'url': url}}
     urls_d = {}
+    sorc_urls = r.json()['data']
+    print sorc_urls
     for url in sorc_urls:
-        urls_d.update(md_urls(url))
+        fid = get_daily_id(url)
+        print fid
+        sid = checkid(url, fid)
+        print sid
+        urls_d[url] = {'dailyid': sid}
     return urls_d
 
-def get_verify_urlid(urls):
-    for url in urls.keys():
-        r = requests.get(url)
-        if r.status_code != 200:
-            return url
-        bs = BeautifulSoup(r.content, 'lxml')
-        urls[url]['id'] = bs.select('#main-panel h1')[0].get_text().split('#')[-1]
-    return urls
 
-def get_verify_id(url):
-    r = requests.get(url)
-    if r.status_code != 200:
-        return 0
+def checkid(url, id):
+    while True:
+        r2 = requests.head(url.replace('lastBuild', id))
+        if r2.status_code != 200:
+            id = str(int(id) - 1)
+            continue
+        return id
+
+def get_daily_id(url):
+    id_url = url.split('lastBuild')[0]+'/lastBuild'
+    print id_url
+    r = requests.get(id_url)
     bs = BeautifulSoup(r.content, 'lxml')
-    return bs.select('#main-panel h1')[0].get_text().split('#')[-1]
+    id = bs.select('#main-panel h1')[0].get_text().split('#')[-1].split(' ')[0].strip()
+    return id
 
-def download_or_not(urls):
+def download_or_not(urlsid):
     global COUNT_EX
-    with open(STORAGE_FILE, 'r+') as f:
-        urls = json.load(f)
-        verifyids = []
-        for url in urls.keys():
-            try:
-                verifyid = get_verify_id(url)
-            except ConnectionError:
-                traceback.print_exc()
-                COUNT_EX += 1
-                print COUNT_EX
-                time.sleep(1)
-                continue
-            if verifyid == urls[url]['id']:
-                continue
-            urls[url]['id'] = verifyid
-            print verifyid
-            #TODO:下载
-            verifyids.append((urls[url]['url'], verifyid))
 
-        f.seek(0)
-        f.truncate()
-        json.dump(urls, f)
-    return verifyids
+    urls = urlsid
+    dailyids = []
+    for url in urls.keys():
+        try:
+            dailyid = get_daily_id(url)
+            sdailyid = checkid(url, dailyid)
+            if urlsid[url]['dailyid'] == sdailyid:
+                continue
+        except ConnectionError:
+            traceback.print_exc()
+            COUNT_EX += 1
+            print COUNT_EX
+            time.sleep(1)
+            continue
+        urls[url]['dailyid'] = sdailyid
+        print urls
+        print dailyid
+        #TODO:下载
+        dailyids.append((url, sdailyid))
+
+    return dailyids
 
 def download_pac(url, verifyid):
     r = requests.get(url.replace('lastBuild', verifyid), stream=True)
     if r.status_code != 200:
-        print 'get url fail: %d %s'%(r.status_code, url)
+        print 'get url fail: %d %s'%(r.status_code, url.replace('lastBuild', verifyid))
         return 'get url fail: %d'%r.status_code
     url_s = url.split('/')
     if 'view' in url:
@@ -103,16 +104,6 @@ def download_pac(url, verifyid):
             f.write(line)
 
     request_squrd(dl_p, url, verifyid)
-
-def init():
-    urls = get_urls()
-
-    url_id = get_verify_urlid(urls)
-    print url_id
-    with open('urls_infos.json', 'r+') as f:
-        json.dump(url_id, f)
-        f.flush()
-    return url_id
 
 def request_squrd(download_path, daily_url, dailyid):
     try:
@@ -167,24 +158,24 @@ def request_squrd(download_path, daily_url, dailyid):
 
 if __name__ == '__main__':
 
-    url_id = init()
-    # urls = get_urls()
-    #
-    # url_id = get_verify_urlid(urls)
-    # print url_id
-    # with open(STORAGE_FILE, 'r+') as f:
-    #     tof = json.dump(url_id, f)
-    #     f.flush()
+    urls_id = init()
+    with open(STORAGE_FILE, 'r+') as f:
+        json.dump(urls_id, f)
     process = []
     while True:
-        verifyids = download_or_not(url_id)
-        for url_verifyid in verifyids:
-            p = multiprocessing.Process(target=download_pac, args=url_verifyid, name='download_pac')
+        with open(STORAGE_FILE, 'r+') as f:
+            urls_id = json.load(f)
+        daily_urls_id = download_or_not(urls_id)
+        with open(STORAGE_FILE, 'r+') as f:
+            json.dump(urls_id, f)
+        print 'daily_urls_id: ',daily_urls_id
+        for daily_url_id in daily_urls_id:
+            p = multiprocessing.Process(target=download_pac, args=daily_url_id, name='download_pac')
             process.append(p)
             p.start()
-            print p.pid
-        print process
+            print 'download_pac PID: ', p.pid
         for pro in process:
+            print 'process pid: ', pro.pid
             if not pro.is_alive():
                 process.remove(pro)
         print 'sleep'
