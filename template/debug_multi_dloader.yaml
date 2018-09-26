@@ -21,11 +21,26 @@ actions:
     images:
       pac:
         url: file:///home/apuser/pacs/sp7731e_1h10_native-userdebug-native_PIKE2_Uncache.pac
+        compression: gz
     namespace: droid
     os: debian
     timeout:
       minutes: 30
     to: dloader
+- test:
+    definitions:
+    - branch: sprd_dev2
+      from: git
+      name: monkey
+      path: automated/android/monkey/monkey.yaml
+      repository: 'ssh://gitadmin@gitmirror.spreadtrum.com/lava_apr/lava_test_case'
+      params:
+        EVENT_COUNT: 1000
+        THROTTLE: 200
+    namespace: tlxc
+    timeout:
+      minutes: 15
+
 device_type: debug_multi_dloader
 job_name: debug dloader
 priority: medium
@@ -36,10 +51,9 @@ protocols:
     name: lxc-sp9850ka-native-test
     release: sid
     template: debian
-    persist: true
 timeouts:
   action:
     minutes: 15
   job:
     minutes: 60
-visibility: public 
+visibility: public

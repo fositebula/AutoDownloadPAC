@@ -16,7 +16,9 @@ import multiprocessing
 COUNT_EX = 0
 WHITE_URL = 'http://10.0.70.54:8080/tjxt/index/get_white_list_pac_info'
 STORAGE_FILE = 'urls_infos.json'
-DOWLOAD_LAVA = ''
+DOWLOAD_LAVA = '/home/apuser/download-lava/auto_download_daily/'
+SUB_WHITELIST = 'http://10.0.70.92:8000/submitinfos/infos/list_pac_urls_j/'
+
 
 def init():
     r = requests.get(WHITE_URL)
@@ -41,12 +43,21 @@ def checkid(url, id):
         return id
 
 def get_daily_id(url):
-    id_url = url.split('lastBuild')[0]+'/lastBuild'
-    print id_url
-    r = requests.get(id_url)
-    bs = BeautifulSoup(r.content, 'lxml')
-    id = bs.select('#main-panel h1')[0].get_text().split('#')[-1].split(' ')[0].strip()
-    return id
+    while True:
+        try:
+            id_url = url.split('lastBuild')[0]+'/lastBuild'
+            print id_url
+            r = requests.get(id_url)
+            bs = BeautifulSoup(r.content, 'lxml')
+            id = bs.select('#main-panel h1')[0].get_text().split('#')[-1].split(' ')[0].strip()
+            if id == '':
+                time.sleep(1)
+                continue
+            return id
+        except ConnectionError:
+            time.sleep(1)
+            continue
+
 
 def download_or_not(urlsid):
     global COUNT_EX
@@ -74,6 +85,7 @@ def download_or_not(urlsid):
     return dailyids
 
 def download_pac(url, verifyid):
+    #TODO: 下载的pac不能解压
     r = requests.get(url.replace('lastBuild', verifyid), stream=True)
     if r.status_code != 200:
         print 'get url fail: %d %s'%(r.status_code, url.replace('lastBuild', verifyid))
@@ -88,8 +100,8 @@ def download_pac(url, verifyid):
     project = url_s[project_i]
     pac = url_s[-1]
 
-    if not os.path.exists(DOWLOAD_LAVA+branch):
-        os.mkdir(DOWLOAD_LAVA+branch)
+    if not os.path.exists(os.path.join(DOWLOAD_LAVA,branch)):
+        os.mkdir(os.path.join(DOWLOAD_LAVA, branch))
         os.mkdir(os.path.join(DOWLOAD_LAVA, branch, project))
         os.mkdir(os.path.join(DOWLOAD_LAVA, branch, project, verifyid))
     else:
@@ -103,6 +115,7 @@ def download_pac(url, verifyid):
         for line in r.iter_lines():
             f.write(line)
 
+
     request_squrd(dl_p, url, verifyid)
 
 def request_squrd(download_path, daily_url, dailyid):
@@ -113,7 +126,7 @@ def request_squrd(download_path, daily_url, dailyid):
         if not device_type:
             print 'Not in white list!', daily_url
             return
-        dp = 'http://worker05:8080/'+download_path
+        dp = download_path.replace('/home/apuser', 'http://worker05:8080')
         url_s = daily_url.split('/')
         if 'view' in daily_url:
             branch = url_s[7]
@@ -155,11 +168,61 @@ def request_squrd(download_path, daily_url, dailyid):
     except:
         traceback.print_exc()
 
+def request_squrd2(daily_url, dailyid):
+    try:
+        dtl = requests.get(SUB_WHITELIST).json()
+        print dtl
+        device_type = dtl.get(daily_url).get('dt')
+        if not device_type:
+            print 'Not in white list!', daily_url
+            return
+        url_s = daily_url.split('/')
+        if 'view' in daily_url:
+            branch = url_s[7]
+        else:
+            branch = url_s[5]
+
+        project_i = url_s.index('Images') + 1
+        project = url_s[project_i]
+
+        b_num = branch+"_"+project+str(dailyid)
+        y_template = os.path.join('template', device_type+'.yaml')
+        cmd = """python submit_for_testing.py \
+              --device-type {LAVA_DEVICE_TYPE} \
+              --build-number  {build_number}\
+              --lava-server {LAVA_SERVER} \
+              --qa-server {QA_SERVER} \
+              --qa-server-team lkft \
+              --qa-server-project {QA_SERVER_PROJECT} \
+              --test-plan {yaml} \
+              --img-path {DOWNLOAD_URL} \
+              --change-id {changeid} \
+              --vts-url {VTS_URL} \
+              --submitter {SUBMIT_USER_NAME} \
+              --qa-token 13194653496cba5209fd1187e37adb5c0260f904"""\
+            .format(LAVA_DEVICE_TYPE=device_type,
+                    build_number=b_num,
+                    LAVA_SERVER='sprd_lava_01',
+                    QA_SERVER='http://10.0.70.105:8000',
+                    QA_SERVER_PROJECT='remote-lab-demo',
+                    yaml=y_template,
+                    DOWNLOAD_URL=daily_url.replace('lastBuild', dailyid),
+                    changeid='0',
+                    VTS_URL='0',
+                    SUBMIT_USER_NAME='pac_dloader',
+                    )
+
+        print cmd
+        os.system(cmd)
+    except:
+        traceback.print_exc()
+
+
 
 if __name__ == '__main__':
 
     urls_id = init()
-    with open(STORAGE_FILE, 'r+') as f:
+    with open(STORAGE_FILE, 'w+') as f:
         json.dump(urls_id, f)
     process = []
     while True:
@@ -170,10 +233,10 @@ if __name__ == '__main__':
             json.dump(urls_id, f)
         print 'daily_urls_id: ',daily_urls_id
         for daily_url_id in daily_urls_id:
-            p = multiprocessing.Process(target=download_pac, args=daily_url_id, name='download_pac')
+            p = multiprocessing.Process(target=request_squrd2, args=daily_url_id, name='request_squrd2')
             process.append(p)
             p.start()
-            print 'download_pac PID: ', p.pid
+            print 'request_squrd2 PID: ', p.pid
         for pro in process:
             print 'process pid: ', pro.pid
             if not pro.is_alive():
